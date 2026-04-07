@@ -3,6 +3,17 @@
 A comparison of this repository against the recommendations in Tom Hombergs' book
 *Get Your Hands Dirty on Clean Architecture*.
 
+## What buckpal-ts Gets Right
+
+### Mapping strategies are well-chosen (Chapter 9)
+
+The repo follows the book's recommended per-use-case mapping guidelines:
+
+- **Web → Application (SendMoney)**: Uses "Full" mapping via `SendMoneyCommand` — the book's recommended default for modifying use cases (p.91). The controller maps HTTP path parameters into a dedicated, self-validating command object. This decouples the web model from the domain and gives the use case explicit, per-operation input validation.
+- **Application → Persistence**: Uses "Two-Way" mapping with separate ORM entities (`AccountOrmEntity`, `ActivityOrmEntity`) and an `AccountMapper`. This is justified because the domain model (Account with ActivityWindow + computed baseline balance) is structurally different from the flat persistence model. The book recommends starting with "No Mapping" here and evolving to "Two-Way" when persistence concerns diverge from the domain — this repo has already crossed that threshold.
+
+The mapping choices are correct but undocumented. The book (p.91) recommends teams agree on explicit per-boundary mapping guidelines so the decisions are reviewable and consistently applied as the codebase grows. See `CLAUDE.md` for the documented guidelines.
+
 ## Where buckpal-ts Falls Short
 
 ### 1. No Tests (Chapter 7 — the biggest gap)
@@ -46,7 +57,7 @@ account/
 
 This conflates the domain layer with the application layer, making the domain's independence less architecturally visible. The book's structure makes it immediately obvious that the domain has no dependency on the application layer.
 
-### 4. No Architecture Boundary Enforcement (Chapter 10)
+### 4. No Architecture Boundary Enforcement (Chapter 12)
 
 The book recommends at least one of:
 
@@ -56,11 +67,11 @@ The book recommends at least one of:
 
 The repo has **none** of these. Nothing prevents an adapter from importing directly from the domain's internal files or a service from importing an ORM entity. The architecture is purely conventional, relying on developer discipline alone.
 
-### 5. NestJS `@Injectable()` Leaks into Domain Services (Chapter 9, p.81–83)
+### 5. NestJS `@Injectable()` on Domain Services — a Conscious Shortcut (Chapters 10–11)
 
-The book warns about framework annotations polluting the application core. It advocates keeping the application/domain layers free of framework dependencies, preferring configuration-class-based assembly (Spring's `@Configuration` / `@Bean`).
+The book warns about framework annotations polluting the application core (Chapter 10, p.81–83), preferring configuration-class-based assembly. `SendMoneyService` is decorated with `@Injectable()` — a NestJS-specific decorator.
 
-`SendMoneyService` is decorated with `@Injectable()` — a NestJS-specific decorator. The book would prefer the service to be a plain class, with the wiring done entirely in `account.module.ts`. Since NestJS does support factory-based provider registration (which `account.module.ts` already uses for some providers), the `@Injectable()` on the service is unnecessary framework coupling in the domain.
+However, the book also acknowledges (p.96) that *"a single annotation on a class is not such a big deal and can easily be refactored, if at all necessary."* This is best understood as a **conscious shortcut** (Chapter 11) rather than an outright deficiency. The `account.module.ts` already uses factory-based provider registration for several providers, so the `@Injectable()` on the service could be removed in favour of a `useFactory` registration if purity is desired. The trade-off is minor in practice.
 
 ### 6. Missing Web Adapter Input Validation / Error Handling (Chapter 5, p.41)
 
@@ -79,9 +90,11 @@ The book shows the Java controller returning appropriate HTTP statuses. The TS c
 
 The book's Java `Account` has **private fields** with controlled access through getters and factory methods (`withId`, `withoutId`). The TS `Account` declares fields as `readonly` but they're directly on the constructor, making `account.id`, `account.baselineBalance`, and `account.activityWindow` publicly readable by anyone — including adapters that shouldn't be reaching into the domain internals. While TypeScript `readonly` prevents reassignment, the book's intent is encapsulation: fields should be `private readonly` with explicit getter methods where access is needed.
 
-### 9. No `GetAccountBalanceController` / Missing Read Use Case Web Adapter (Chapter 4, p.37–38)
+### 9. No `GetAccountBalanceController` / Missing Read Use Case Web Adapter (Chapters 4, 9)
 
 The book implements the `GetAccountBalanceQuery` read use case with its own dedicated controller (following the "slice controllers" principle from Chapter 5). The repo defines `GetAccountBalanceService` and `GetAccountBalanceUseCase` but **has no web adapter** to expose it. It's an orphaned use case with no entry point.
+
+This is also a missed opportunity to demonstrate a **different mapping strategy for reads**. Chapter 9 (p.91) recommends "No Mapping" as the first choice for queries at both the web and persistence boundaries. A `GetAccountBalanceController` could return the domain `Money` directly — simpler than the "Full" mapping used for the write path — showing how mapping strategies vary by use case within the same codebase.
 
 ### 10. `SendMoneyCommand` Validates After Assignment (Chapter 4, p.30–31)
 
@@ -104,11 +117,12 @@ The book introduces a `SelfValidating<T>` abstract class that leverages Bean Val
 
 | Area | Book's Recommendation | Repo Status |
 |------|----------------------|-------------|
+| Mapping strategies | Per-use-case, mix as needed | Correct choices, now documented |
 | Testing strategy | Unit + integration + system tests | Essentially none |
 | Transactions | `@Transactional` on services | Missing entirely |
 | Package structure | `domain/` sibling to `application/` | `domain/` nested inside `application/` |
 | Boundary enforcement | ArchUnit / visibility / build modules | None |
-| Framework in core | Keep application layer framework-free | `@Injectable()` on services |
+| Framework in core | Keep application layer framework-free | `@Injectable()` — conscious shortcut |
 | Web adapter responses | Proper HTTP status codes + error handling | Returns void, ignores failures |
 | Controller slicing | One controller per use case | Missing controller for GetAccountBalance |
 | Input validation | `SelfValidating` with declarative rules | Manual checks, no class-validator |
@@ -116,4 +130,4 @@ The book introduces a `SelfValidating<T>` abstract class that leverages Bean Val
 
 ## Conclusion
 
-The structural skeleton is sound — the directory layout, port/adapter separation, and dependency inversion via DI are all there. The gaps are in **testing, transaction safety, boundary enforcement, and the polish** that turns an architectural skeleton into a production-ready implementation.
+The structural skeleton is sound — the directory layout, port/adapter separation, dependency inversion via DI, and mapping strategy choices are all correct. The gaps are in **testing, transaction safety, boundary enforcement, and the polish** that turns an architectural skeleton into a production-ready implementation.
